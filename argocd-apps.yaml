@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: 'https://github.com/argoproj/argocd-example-apps.git' # Replacement guide below
+    repoURL: 'https://github.com/Yuvi-1228/eks-microservices-gitops.git' # Replacement guide below
     targetRevision: HEAD
     path: helm-guestbook
   destination:
