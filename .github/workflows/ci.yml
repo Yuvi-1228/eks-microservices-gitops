@@ -1,0 +1,81 @@
+name: Microservices Build, Scan & Push (CI)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_BACKEND_REPO: microservices-backend
+  ECR_FRONTEND_REPO: microservices-frontend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set Image Tag (Git SHA)
+        id: vars
+        run: echo "IMAGE_TAG=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+      # --- BACKEND SERVICE ---
+      - name: Build Backend Docker Image
+        run: |
+          docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_BACKEND_REPO }}:${{ env.IMAGE_TAG }} -f backend/Dockerfile .
+
+      - name: Run Trivy Vulnerability Scanner on Backend Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_BACKEND_REPO }}:${{ env.IMAGE_TAG }}'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Backend Image to ECR
+        run: |
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_BACKEND_REPO }}:${{ env.IMAGE_TAG }}
+
+      # --- FRONTEND SERVICE ---
+      - name: Build Frontend Docker Image
+        run: |
+          docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_FRONTEND_REPO }}:${{ env.IMAGE_TAG }} -f frontend/Dockerfile .
+
+      - name: Run Trivy Vulnerability Scanner on Frontend Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_FRONTEND_REPO }}:${{ env.IMAGE_TAG }}'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Frontend Image to ECR
+        run: |
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_FRONTEND_REPO }}:${{ env.IMAGE_TAG }}
+
+      # --- GITOPS TAG UPDATE ---
+      - name: Update Helm Chart Image Tags in Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          sed -i "s/tag: .*/tag: \"${{ env.IMAGE_TAG }}\"/g" helm/backend-values.yaml
+          sed -i "s/tag: .*/tag: \"${{ env.IMAGE_TAG }}\"/g" helm/frontend-values.yaml
+          git add helm/backend-values.yaml helm/frontend-values.yaml
+          git commit -m "chore(ci): update image tag to ${{ env.IMAGE_TAG }} [skip ci]" || true
+          git push

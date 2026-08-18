@@ -1,0 +1,32 @@
+serviceName: "backend"
+replicaCount: 2
+
+image:
+  repository: "484907532835.dkr.ecr.us-east-1.amazonaws.com/microservices-backend"
+  tag: "v1.0.0"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 5000
+  targetPort: 5000
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "250m"
+    memory: "256Mi"
+
+probes:
+  liveness:
+    path: "/health"
+  readiness:
+    path: "/health"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
